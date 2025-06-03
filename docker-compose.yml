@@ -1,5 +1,41 @@
 version: '3.8'
+
 services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - taskplanner
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    networks:
+      - taskplanner
+
+  email-service:
+    build:
+      context: ../TaskPlannerEmailService
+      dockerfile: Dockerfile
+    ports:
+      - "8082:8082"
+    depends_on:
+      - kafka
+    networks:
+      - taskplanner
+
   frontend:
     build:
       context: ../TaskPlannerFrontendService
@@ -8,6 +44,8 @@ services:
       - "3000:3000"
     depends_on:
       - api-gateway
+    networks:
+      - taskplanner
 
   api-gateway:
     build:
@@ -17,7 +55,8 @@ services:
       - "8081:8081"
     depends_on:
       - backend
-
+    networks:
+      - taskplanner
 
   backend:
     build:
@@ -29,11 +68,13 @@ services:
       database:
         condition: service_healthy
     environment:
-      - DB_URL=${DB_PASSWORD}
+      - DB_URL=jdbc:postgresql://database:5432/taskPlanner
       - DB_USERNAME=${DB_USERNAME}
       - DB_PASSWORD=${DB_PASSWORD}
       - JWT_SECRET=${JWT_SECRET}
-
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    networks:
+      - taskplanner
 
   database:
     image: postgres:15-alpine
@@ -49,7 +90,12 @@ services:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME} -d taskPlanner"]
       interval: 5s
       retries: 5
-
+    networks:
+      - taskplanner
 
 volumes:
   postgres_data:
+
+networks:
+  taskplanner:
+    driver: bridge
